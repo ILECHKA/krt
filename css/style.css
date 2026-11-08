@@ -242,3 +242,19 @@ h3{font-size:16px;margin:20px 0 8px}
 .mic-s{flex:0 0 56px}
 .mic-s.on{background:var(--rose);color:#fff}
 .card.soft{margin-top:12px;background:var(--surface2);box-shadow:none;padding:16px}
+.plan{display:grid;gap:10px}
+.pstep{display:flex;align-items:center;gap:14px;text-align:left;background:var(--surface);border:0;border-radius:18px;padding:14px;box-shadow:var(--shadow)}
+.pnum{flex:none;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:var(--accent-soft);color:var(--accent)}
+.pstep.done{opacity:.6}
+.pstep.done .pnum{background:var(--green);color:#fff}
+.pstep.done b{text-decoration:line-through;text-decoration-color:var(--muted)}
+.tip{background:var(--green-soft);border-radius:18px;padding:14px 16px;margin-top:16px;font-size:14.5px}
+.tip.soft{background:var(--sun-soft)}
+.tip .btn{display:block;width:100%;margin-top:10px;padding:12px}
+.skills{display:grid;gap:8px}
+.sk{display:grid;grid-template-columns:96px 1fr 44px;grid-template-rows:auto auto;align-items:center;column-gap:10px;background:var(--surface);border-radius:14px;padding:10px 14px;box-shadow:var(--shadow);font-size:14px}
+.sk b{text-align:right}
+.sk small{grid-column:1/-1;color:var(--muted);font-size:12px}
+.skbar{height:8px;background:var(--surface2);border-radius:99px;overflow:hidden}
+.skbar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:99px}
+.tabbar button{max-width:120px}

@@ -112,12 +112,12 @@ function loadVoices(){
 }
 if(webTTS()){loadVoices();speechSynthesis.addEventListener?speechSynthesis.addEventListener('voiceschanged',loadVoices):(speechSynthesis.onvoiceschanged=loadVoices);setTimeout(loadVoices,800)}
 let speakTimer=null;
+function stopSpeech(){clearTimeout(speakTimer);if(webTTS()&&(speechSynthesis.speaking||speechSynthesis.pending))speechSynthesis.cancel()}
 function speak(t){
   if(!canSpeak())return;
   loadVoices();
   if(voicesLoaded&&!koVoice&&!warned){warned=true;toast('На устройстве нет корейского голоса. Нажмите 🔊 вверху, там инструкция.')}
-  if(speechSynthesis.speaking||speechSynthesis.pending)speechSynthesis.cancel();
-  clearTimeout(speakTimer);
+  stopSpeech();
   /* Chrome молча теряет фразу, если вызвать speak сразу после cancel */
   speakTimer=setTimeout(()=>{
     const u=new SpeechSynthesisUtterance(t);
@@ -127,6 +127,7 @@ function speak(t){
     speechSynthesis.speak(u);
   },60);
 }
+
 function toast(msg){
   let el=document.getElementById('toast');
   if(!el){el=document.createElement('div');el.id='toast';el.setAttribute('role','status');document.body.appendChild(el)}
@@ -206,7 +207,7 @@ function sim(a,b){
 /* ===== Голосовой ввод ===== */
 function micErr(err){return err==='network'?'Распознавание речи работает только с интернетом':err==='not-allowed'||err==='service-not-allowed'?'Нет доступа к микрофону. Разрешите его в настройках браузера (значок слева от адреса)':err==='no-speech'?'Ничего не услышал, попробуйте ещё раз':err==='audio-capture'?'Микрофон не найден':'Ошибка распознавания: '+err}
 function listenKo(btn,v,onText){
-  stopRec();if(webTTS())speechSynthesis.cancel();
+  stopRec();stopSpeech();
   try{rec=new SR()}catch(e){v.className='verdict bad';v.textContent='Голосовой ввод недоступен в этом браузере. Нужен Chrome или Edge';return}
   rec.lang='ko-KR';rec.interimResults=false;rec.maxAlternatives=5;
   const label=btn.innerHTML;btn.innerHTML='● Слушаю…';btn.classList.add('on');v.className='verdict';v.textContent='';
@@ -219,9 +220,9 @@ const closest=(alts,target)=>alts.reduce((m,x)=>sim(x,target)>sim(m,target)?x:m,
 
 /* ===== Каркас ===== */
 const view=document.getElementById('view');
-const TABS=['words','read','write','tests'];
+const TABS=['today','words','read','write','tests'];
 let tab=location.hash.slice(1);
-if(!TABS.includes(tab))tab='words';
+if(!TABS.includes(tab))tab='today';
 function setTab(t){
   tab=t;
   document.querySelectorAll('.tabbar button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));
@@ -280,12 +281,13 @@ function dayBanner(){
   </section>`;
 }
 function home(){
-  if(webTTS())speechSynthesis.cancel();
+  stopSpeech();
   stopRec();
   document.body.classList.remove('insession');
   window.scrollTo(0,0);
   if(tab==='tests')testsHome();
   else if(needLessons())return;
+  else if(tab==='today')todayHome();
   else if(tab==='words')wordsHome();
   else if(tab==='read')readHome();
   else if(tab==='write')writeHome();
@@ -348,7 +350,7 @@ function run(cfg){
   document.body.classList.add('insession');
   const answered=()=>res.ok+res.bad+res.skip;
   const next=()=>{i++;if(inf&&i>=tasks.length-2)tasks=tasks.concat(cfg.make(20));show()};
-  const end=()=>{stopRec();if(webTTS())speechSynthesis.cancel();answered()?summaryView(res,cfg):home()};
+  const end=()=>{stopRec();stopSpeech();answered()?summaryView(res,cfg):home()};
   const show=()=>{
     if(!inf&&i>=tasks.length)return end();
     const t=tasks[i];
@@ -364,6 +366,8 @@ function run(cfg){
     let finished=false;
     const finish=(status,auto)=>{
       if(finished)return;finished=true;bumpDay();
+      if(cfg.key&&status!=='skip')recordSkill(cfg.key,status==='ok');
+      if(cfg.key&&status==='skip')recordSkill(cfg.key,false);
       res[status]++;
       const bt=res.byType[t.kind]=res.byType[t.kind]||{ok:0,n:0};bt.n++;if(status==='ok')bt.ok++;
       if(status!=='ok'&&t.miss)res.misses.push(t.miss);
@@ -380,6 +384,7 @@ function summaryView(res,cfg){
   document.body.classList.remove('insession');
   const total=res.ok+res.bad+res.skip,pct=Math.round(res.ok/total*100);
   if(cfg.onDone)cfg.onDone(pct,res);
+  if(cfg.planIdx!==undefined)markStep(cfg.planIdx);
   const uniq=[];const seen=new Set();for(const m of res.misses){if(!seen.has(m.ko)){seen.add(m.ko);uniq.push(m)}}
   view.innerHTML=`<div class="result">
     <div class="ring" style="--p:${pct}"><span>${pct}%</span></div>
@@ -538,7 +543,7 @@ const RENDER={
     bindSay(el);
     const v=$('.verdict',el),mic=$('#mic',el);
     mic.onclick=()=>{
-      stopRec();if(webTTS())speechSynthesis.cancel();
+      stopRec();stopSpeech();
       try{rec=new SR()}catch(e){v.className='verdict bad';v.textContent='Распознавание речи недоступно в этом браузере';return}
       rec.lang='ko-KR';rec.interimResults=false;rec.maxAlternatives=5;
       mic.textContent='Слушаю…';mic.classList.add('on');v.className='verdict';v.textContent='';
@@ -557,44 +562,130 @@ const RENDER={
 };
 
 /* ===== Разделы ===== */
-function wordsHome(){
-  const hard=sel(W).filter(w=>srs[w.id]&&srs[w.id].b===0);
-  const list=[
-    {g:'카드',t:'Карточки',d:'Вспомните перевод и оцените себя. Знакомые слова возвращаются реже.',go:()=>run({make:n=>pickWords(n).map(cardTask),title:'Карточки'})},
-    ...(hard.length?[{g:'!',c:'coral',t:`Трудные слова (${hard.length})`,d:'Слова, в которых вы ошиблись в последний раз.',go:()=>run({make:n=>fill(sel(W).filter(w=>srs[w.id]&&srs[w.id].b===0),n).map(cardTask),title:'Трудные слова'})}]:[]),
-    {g:'한',t:'Корейский → русский',d:'Выберите правильный перевод.',go:()=>run({make:n=>pickWords(n).map(w=>wordTask(w,'ko',sel(W))),title:'Корейский → русский'})},
-    {g:'ру',t:'Русский → корейский',d:'Найдите корейское слово среди похожих.',go:()=>run({make:n=>pickWords(n).map(w=>wordTask(w,'ru',sel(W))),title:'Русский → корейский'})},
-    ...(canSpeak()?[{g:'♪',t:'На слух',d:'Слово звучит вслух, выберите перевод.',go:()=>run({make:n=>pickWords(n).map(w=>wordTask(w,'audio',sel(W))),title:'На слух'})}]:[]),
-    ...(SR?[{g:'🎤',c:'rose',t:'Переведи голосом',d:'Русское слово → скажите его по-корейски в микрофон.',go:()=>run({make:n=>pickWords(n,sel(W).filter(w=>!/^-/.test(w.ko))).map(voiceTask),title:'Переведи голосом'})}]:[]),
-    {g:'＋',c:'sun',t:'Мои слова',d:`Свой словарь: ${custom.length} ${plural(custom.length,['слово','слова','слов'])}. Добавляйте слова из сериалов, песен, жизни.`,go:myWords}
-  ];
-  view.innerHTML=`<h2 class="h">Слова</h2>`+statline()+modes(list);
-  bindModes(list);
+/* ===== Режимы упражнений (общий реестр) ===== */
+const AREAS={vocab:'Слова',listen:'Аудирование',read:'Чтение',grammar:'Грамматика',write:'Письмо',speak:'Речь'};
+const hardList=()=>sel(W).filter(w=>srs[w.id]&&srs[w.id].b===0);
+const freshList=()=>sel(W).filter(w=>!srs[w.id]);
+const MODES=[
+  {k:'cards',tab:'words',area:'vocab',g:'카드',t:'Карточки',d:'Вспомните перевод и оцените себя. Знакомые слова возвращаются реже.',make:n=>pickWords(n).map(cardTask)},
+  {k:'hard',tab:'words',area:'vocab',g:'!',c:'coral',t:'Трудные слова',d:'Слова, в которых вы ошиблись в последний раз.',when:()=>hardList().length>0,make:n=>fill(hardList(),n).map(cardTask)},
+  {k:'w-ko',tab:'words',area:'vocab',g:'한',t:'Корейский → русский',d:'Выберите правильный перевод.',make:n=>pickWords(n).map(w=>wordTask(w,'ko',sel(W)))},
+  {k:'w-ru',tab:'words',area:'vocab',g:'ру',t:'Русский → корейский',d:'Найдите корейское слово среди похожих.',make:n=>pickWords(n).map(w=>wordTask(w,'ru',sel(W)))},
+  {k:'w-audio',tab:'words',area:'listen',g:'♪',t:'На слух',d:'Слово звучит вслух, выберите перевод.',when:canSpeak,make:n=>pickWords(n).map(w=>wordTask(w,'audio',sel(W)))},
+  {k:'w-voice',tab:'words',area:'speak',g:'🎤',c:'rose',t:'Переведи голосом',d:'Русское слово → скажите его по-корейски в микрофон.',when:()=>!!SR,make:n=>pickWords(n,sel(W).filter(w=>!/^-/.test(w.ko))).map(voiceTask)},
+  {k:'my',tab:'words',g:'＋',c:'sun',t:'Мои слова',d:()=>`Свой словарь: ${custom.length} ${plural(custom.length,['слово','слова','слов'])}. Добавляйте слова из сериалов, песен, жизни.`,go:()=>myWords()},
+  {k:'s-ko',tab:'read',area:'read',g:'읽기',t:'Прочитай фразу',d:'Корейская фраза → перевод.',make:n=>fill(sentPool(),n).map(s=>sentTask(s,'ko',sentPool()))},
+  {k:'s-ru',tab:'read',area:'read',g:'찾기',t:'Найди фразу',d:'Русская фраза → корейская среди похожих.',make:n=>fill(sentPool(),n).map(s=>sentTask(s,'ru',sentPool()))},
+  {k:'cloze',tab:'read',area:'grammar',g:'빈칸',t:'Вставь пропуск',d:'Выберите слово или окончание, которое подходит.',make:n=>fill(multiPool(),n).map(s=>clozeTask(s,multiPool()))},
+  {k:'build',tab:'read',area:'grammar',g:'조립',t:'Собери фразу',d:'Расставьте слова в правильном порядке.',make:n=>fill(multiPool(),n).map(buildTask)},
+  {k:'dialogs',tab:'read',g:'대화',t:'Диалоги',d:'Сценки из жизни: выбирайте свою реплику.',go:()=>dialogList()},
+  {k:'s-audio',tab:'read',area:'listen',g:'♪',t:'Фраза на слух',d:'Послушайте и выберите перевод.',when:canSpeak,make:n=>fill(sentPool(),n).map(s=>sentTask(s,'audio',sentPool()))},
+  {k:'s-voice',tab:'read',area:'speak',g:'🎤',c:'rose',t:'Переведи фразу голосом',d:'Русская фраза → скажите её по-корейски.',when:()=>!!SR,make:n=>fill(sentPool(),n).map(voiceTask)},
+  {k:'speak',tab:'read',area:'speak',g:'🗣',t:'Скажи вслух',d:'Прочитайте фразу в микрофон, приложение проверит произношение.',when:()=>!!SR,make:n=>fill(sentPool(),n).map(speakTask)},
+  {k:'copy',tab:'write',area:'write',g:'따라',t:'Перепиши',d:'Видите слово, набираете его. Лучший способ освоить клавиатуру.',make:n=>pickWords(n).map(w=>writeTask(w,'copy'))},
+  {k:'w-tr',tab:'write',area:'write',g:'단어',t:'Переведи слово',d:'Русское слово → наберите по-корейски.',make:n=>pickWords(n).map(w=>writeTask(w,'tr'))},
+  {k:'conj',tab:'write',area:'grammar',g:'활용',t:'Спряжение',d:'먹다 → 먹었어요. Пять форм, включая неправильные глаголы.',make:n=>Array.from({length:n},conjTask)},
+  {k:'s-tr',tab:'write',area:'write',g:'문장',t:'Переведи фразу',d:'Русская фраза → наберите её по-корейски.',make:n=>fill(sentPool(),n).map(s=>writeTask(s,'tr'))},
+  {k:'dict',tab:'write',area:'listen',g:'받아',t:'Диктант',d:'Слушаете и записываете.',when:canSpeak,make:n=>shuffle([...pickWords(Math.ceil(n*.6)),...fill(sentPool(),Math.floor(n*.4))]).map(x=>writeTask(x,'dict'))}
+];
+const modeBy=k=>MODES.find(m=>m.k===k);
+const avail=m=>!m.when||m.when();
+function launch(m,extra={}){if(m.go)return m.go();run({make:m.make,title:m.t,key:m.k,...extra})}
+function modeList(tab){
+  return MODES.filter(m=>m.tab===tab&&avail(m)).map(m=>({...m,t:m.k==='hard'?`${m.t} (${hardList().length})`:m.t,d:typeof m.d==='function'?m.d():m.d,go:()=>launch(m)}));
 }
-function readHome(){
-  const list=[
-    {g:'읽기',t:'Прочитай фразу',d:'Корейская фраза → перевод.',go:()=>run({make:n=>fill(sentPool(),n).map(s=>sentTask(s,'ko',sentPool())),title:'Прочитай фразу'})},
-    {g:'찾기',t:'Найди фразу',d:'Русская фраза → корейская среди похожих.',go:()=>run({make:n=>fill(sentPool(),n).map(s=>sentTask(s,'ru',sentPool())),title:'Найди фразу'})},
-    {g:'빈칸',t:'Вставь пропуск',d:'Выберите слово или окончание, которое подходит.',go:()=>run({make:n=>fill(multiPool(),n).map(s=>clozeTask(s,multiPool())),title:'Вставь пропуск'})},
-    {g:'조립',t:'Собери фразу',d:'Расставьте слова в правильном порядке.',go:()=>run({make:n=>fill(multiPool(),n).map(buildTask),title:'Собери фразу'})},
-    {g:'대화',t:'Диалоги',d:'Сценки из жизни: выбирайте свою реплику.',go:dialogList},
-    ...(canSpeak()?[{g:'♪',t:'Фраза на слух',d:'Послушайте и выберите перевод.',go:()=>run({make:n=>fill(sentPool(),n).map(s=>sentTask(s,'audio',sentPool())),title:'Фраза на слух'})}]:[]),
-    ...(SR?[{g:'🎤',c:'rose',t:'Переведи фразу голосом',d:'Русская фраза → скажите её по-корейски.',go:()=>run({make:n=>fill(sentPool(),n).map(voiceTask),title:'Переведи фразу голосом'})}]:[]),
-    ...(SR?[{g:'🗣',t:'Скажи вслух',d:'Прочитайте фразу в микрофон, приложение проверит произношение.',go:()=>run({make:n=>fill(sentPool(),n).map(speakTask),title:'Скажи вслух'})}]:[])
-  ];
-  view.innerHTML=`<h2 class="h">Чтение</h2><p class="sub">${sel(S).length} ${plural(sel(S).length,['фраза','фразы','фраз'])} из отмеченных уроков</p>`+modes(list);
-  bindModes(list);
+function wordsHome(){const list=modeList('words');view.innerHTML=`<h2 class="h">Слова</h2>`+statline()+modes(list);bindModes(list)}
+function readHome(){const list=modeList('read');view.innerHTML=`<h2 class="h">Чтение</h2><p class="sub">${sel(S).length} ${plural(sel(S).length,['фраза','фразы','фраз'])} из отмеченных уроков</p>`+modes(list);bindModes(list)}
+function writeHome(){const list=modeList('write');view.innerHTML=`<h2 class="h">Письмо</h2><p class="sub">Нажимайте буквы по порядку, слоги соберутся сами: ㅎ + ㅏ + ㄴ → 한. Двойные согласные и ㅒ ㅖ через ⇧.</p>`+modes(list);bindModes(list)}
+
+/* ===== Статистика навыков ===== */
+let skills=store.get('kor.skills',{});
+function recordSkill(k,ok){
+  const s=skills[k]=skills[k]||{n:0,ok:0,h:[],last:0};
+  s.n++;if(ok)s.ok++;s.h.push(ok?1:0);if(s.h.length>30)s.h.shift();s.last=Date.now();
+  store.set('kor.skills',skills);
 }
-function writeHome(){
-  const list=[
-    {g:'따라',t:'Перепиши',d:'Видите слово, набираете его. Лучший способ освоить клавиатуру.',go:()=>run({make:n=>pickWords(n).map(w=>writeTask(w,'copy')),title:'Перепиши'})},
-    {g:'단어',t:'Переведи слово',d:'Русское слово → наберите по-корейски.',go:()=>run({make:n=>pickWords(n).map(w=>writeTask(w,'tr')),title:'Переведи слово'})},
-    {g:'활용',t:'Спряжение',d:'먹다 → 먹었어요. Пять форм, включая неправильные глаголы.',go:()=>run({make:n=>Array.from({length:n},conjTask),title:'Спряжение'})},
-    {g:'문장',t:'Переведи фразу',d:'Русская фраза → наберите её по-корейски.',go:()=>run({make:n=>fill(sentPool(),n).map(s=>writeTask(s,'tr')),title:'Переведи фразу'})},
-    ...(canSpeak()?[{g:'받아',t:'Диктант',d:'Слушаете и записываете.',go:()=>run({make:n=>shuffle([...pickWords(Math.ceil(n*.6)),...fill(sentPool(),Math.floor(n*.4))]).map(x=>writeTask(x,'dict')),title:'Диктант'})}]:[])
-  ];
-  view.innerHTML=`<h2 class="h">Письмо</h2><p class="sub">Нажимайте буквы по порядку, слоги соберутся сами: ㅎ + ㅏ + ㄴ → 한. Двойные согласные и ㅒ ㅖ через ⇧.</p>`+modes(list);
-  bindModes(list);
+function skillAcc(k){const s=skills[k];if(!s||!s.h.length)return {n:0,acc:null,last:s?s.last:0};return {n:s.h.length,acc:s.h.reduce((a,b)=>a+b,0)/s.h.length,last:s.last}}
+function areaStat(a){
+  const ms=MODES.filter(m=>m.area===a);let h=[],last=0;
+  for(const m of ms){const s=skills[m.k];if(s){h=h.concat(s.h);last=Math.max(last,s.last)}}
+  return {n:h.length,acc:h.length?h.reduce((x,y)=>x+y,0)/h.length:null,last};
+}
+
+/* ===== План на сегодня ===== */
+let plan=store.get('kor.plan',null);
+const daysAgo=t=>t?Math.floor((Date.now()-t)/DAY):null;
+function buildPlan(){
+  const steps=[],used=new Set();
+  const due=dueWords().length,fresh=freshList().length,hard=hardList().length;
+  if(due)steps.push({type:'due',label:`Повторить слова: ${Math.min(due,20)}`,why:'Подошёл срок повторения. Если повторять вовремя, слова уходят в долгую память.'});
+  if(fresh)steps.push({type:'new',label:`Новые слова: ${Math.min(fresh,10)}`,why:`В отмеченных уроках ещё ${fresh} ${plural(fresh,['новое слово','новых слова','новых слов'])}.`});
+  else if(hard>=5&&!due)steps.push({type:'mode',mode:'hard',label:`Трудные слова: ${hard}`,why:'В этих словах вы ошиблись в последний раз.'});
+  const cand=MODES.filter(m=>m.make&&m.area&&avail(m)&&m.k!=='hard'&&m.k!=='cards');
+  const weak=cand.map(m=>({m,s:skillAcc(m.k)})).filter(x=>x.s.n>=6&&x.s.acc<.8).sort((a,b)=>a.s.acc-b.s.acc)[0];
+  if(weak){steps.push({type:'mode',mode:weak.m.k,label:weak.m.t,why:`Слабое место: точность ${Math.round(weak.s.acc*100)}% в последних ответах.`});used.add(weak.m.area)}
+  const areas=Object.keys(AREAS).filter(a=>!used.has(a)&&cand.some(m=>m.area===a)).map(a=>({a,st:areaStat(a)}))
+    .sort((x,y)=>(x.st.last||0)-(y.st.last||0));
+  for(const {a,st} of areas){
+    if(steps.length>=5)break;
+    if(st.last&&daysAgo(st.last)<1&&steps.length>=3)continue;
+    const ms=cand.filter(m=>m.area===a).map(m=>({m,s:skillAcc(m.k)})).sort((x,y)=>(x.s.last||0)-(y.s.last||0));
+    const pick=ms[0];if(!pick)continue;
+    const d=daysAgo(st.last);
+    steps.push({type:'mode',mode:pick.m.k,label:pick.m.t,why:!st.last?`Навык «${AREAS[a]}» вы ещё не тренировали.`:d>=1?`Навык «${AREAS[a]}» не тренировали ${d} ${plural(d,['день','дня','дней'])}.`:`Для разнообразия: навык «${AREAS[a]}».`});
+    if(steps.length>=4)break;
+  }
+  const lt=levelForTest();
+  if(lt)steps.push({type:'test',lv:lt,label:`Тест уровня ${lt}`,why:`Вы выучили большую часть слов уровня ${lt}. Проверьте себя: для зачёта нужно 80%.`});
+  plan={day:today(),sel:settings.lessons.slice().sort().join(','),steps:steps.slice(0,5).map(s=>({...s,done:false}))};
+  store.set('kor.plan',plan);
+}
+function levelForTest(){
+  for(const L of LEVELS){
+    const ws=W.filter(w=>w.lv===L.n);if(!ws.length)continue;
+    const lr=ws.filter(w=>srs[w.id]&&srs[w.id].b>=2).length/ws.length;
+    const best=(tests['L'+L.n]||{}).best||0;
+    if(lr>=.7&&best<80)return L.n;
+  }
+  return 0;
+}
+function nextLesson(){
+  const pool=sel(W).filter(w=>w.lv>0);if(pool.length<8)return null;
+  const lr=pool.filter(w=>srs[w.id]&&srs[w.id].b>=2).length/pool.length;
+  if(lr<.7)return null;
+  for(const L of LEVELS)for(let i=1;i<=L.titles.length;i++){const k=L.n+'-'+i;if(!settings.lessons.includes(k))return {k,lv:L.n,l:i,t:L.titles[i-1],lr}}
+  return null;
+}
+function startStep(i){
+  const s=plan.steps[i];
+  const extra={planIdx:i,count:s.type==='due'?Math.min(20,Math.max(1,dueWords().length)):10};
+  if(s.type==='due')return run({key:'cards',title:'Повторение',make:n=>fill(dueWords(),Math.min(n,Math.max(dueWords().length,1))).map(cardTask),...extra});
+  if(s.type==='new'){const fr=shuffle(freshList()).slice(0,10);return run({key:'cards',title:'Новые слова',make:n=>fill(fr.length?fr:pickWords(10),n).map(cardTask),...extra,count:Math.max(1,Math.min(10,fr.length||10))})}
+  if(s.type==='test')return startTest(s.lv,i);
+  const m=modeBy(s.mode);if(m&&avail(m))launch(m,extra);else{s.done=true;store.set('kor.plan',plan);home()}
+}
+function markStep(i){if(plan&&plan.steps[i]){plan.steps[i].done=true;store.set('kor.plan',plan)}}
+function todayHome(){
+  if(!plan||plan.day!==today()||plan.sel!==settings.lessons.slice().sort().join(','))buildPlan();
+  const done=plan.steps.filter(s=>s.done).length,total=plan.steps.length;
+  const nl=nextLesson();
+  const st=Object.keys(AREAS).map(a=>({a,...areaStat(a)}));
+  const known=st.filter(x=>x.n>=6);
+  const best=known.slice().sort((x,y)=>y.acc-x.acc)[0],worst=known.slice().sort((x,y)=>x.acc-y.acc)[0];
+  const bk=+(localStorage.getItem('kor.backupAt')||0),hasProg=Object.keys(srs).length>=20;
+  view.innerHTML=`<h2 class="h">План на сегодня</h2>
+  <p class="sub">${total?(done===total?'Всё сделано! Можно отдохнуть или позаниматься чем угодно ниже.':`Сделано ${done} из ${total}. План подстраивается под ваши ошибки и пропуски.`):'Отметьте уроки, и я составлю план.'}</p>
+  <div class="plan">${plan.steps.map((s,i)=>`<button class="pstep ${s.done?'done':''}" data-step="${i}"><span class="pnum">${s.done?'✓':i+1}</span><span class="mt"><b>${esc(s.label)}</b><span>${esc(s.why)}</span></span><span class="chev">›</span></button>`).join('')}</div>
+  <div class="row" style="margin-top:10px"><button class="linkbtn" id="replan">↻ Составить план заново</button></div>
+  ${nl?`<div class="tip"><b>Пора двигаться дальше.</b> Вы знаете ${Math.round(nl.lr*100)}% слов из отмеченных уроков. Следующий урок: уровень ${nl.lv}, урок ${nl.l}: «${esc(nl.t)}».<button class="btn" id="addLesson">Добавить этот урок</button></div>`:''}
+  <h3>Ваши навыки</h3>
+  <div class="skills">${st.map(x=>`<div class="sk"><span>${AREAS[x.a]}</span><div class="skbar"><i style="width:${x.acc===null?0:Math.round(x.acc*100)}%"></i></div><b>${x.acc===null?'—':Math.round(x.acc*100)+'%'}</b><small>${x.last?(daysAgo(x.last)===0?'сегодня':daysAgo(x.last)+' дн. назад'):'не было'}</small></div>`).join('')}</div>
+  ${known.length>=2&&best.a!==worst.a?`<p class="sub" style="margin-top:10px">Сильная сторона: <b>${AREAS[best.a]}</b>. Больше всего стоит подтянуть: <b>${AREAS[worst.a]}</b>.</p>`:'<p class="sub" style="margin-top:10px">Точность считается по последним 30 ответам в каждом упражнении.</p>'}
+  ${hasProg&&(!bk||daysAgo(bk)>=14)?`<div class="tip soft"><b>Сохраните прогресс.</b> Он хранится только в этом браузере. ${bk?`Последняя копия: ${daysAgo(bk)} дн. назад.`:'Копию вы ещё не делали.'}<button class="btn ghost" id="bkNow">Скачать резервную копию</button></div>`:''}`;
+  view.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>startStep(+b.dataset.step));
+  $('#replan').onclick=()=>{buildPlan();home()};
+  const al=$('#addLesson');if(al)al.onclick=()=>{settings.lessons.push(nl.k);store.set('kor.set',settings);refreshLessonsBtn();buildPlan();toast('Урок добавлен');home()};
+  const bn=$('#bkNow');if(bn)bn.onclick=()=>{exportBackup();setTimeout(home,800)};
 }
 
 /* ===== Тесты ===== */
@@ -609,9 +700,9 @@ function testTasks(wp,sp){
   fill(wp.filter(w=>!/^-/.test(w.ko)),3).forEach(w=>t.push(writeTask(w,'tr')));
   return t;
 }
-function startTest(lv){
+function startTest(lv,planIdx){
   const wp=lv?W.filter(w=>w.lv===lv):sel(W),sp=lv?S.filter(s=>s.lv===lv):sentPool();
-  run({count:30,test:true,title:lv?`Итоговый тест: уровень ${lv}`:'Тест по отмеченным урокам',make:()=>testTasks(wp,sp),
+  run({count:30,test:true,key:'test',planIdx,title:lv?`Итоговый тест: уровень ${lv}`:'Тест по отмеченным урокам',make:()=>testTasks(wp,sp),
     onDone:pct=>{if(!lv)return;const k='L'+lv;const prev=tests[k];if(!prev||pct>prev.best)tests[k]={best:pct,date:today()};store.set('kor.tests',tests)}});
 }
 function testsHome(){
@@ -736,7 +827,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&sheet.classList.con
 
 
 /* ===== Резервная копия (файл) ===== */
-const SYNC_KEYS=['custom','srs','set','tests','daily'];
+const SYNC_KEYS=['custom','srs','set','tests','daily','skills'];
 function markDirty(){try{localStorage.setItem('kor.updated',String(Date.now()))}catch(e){}}
 function localState(){const o={};for(const k of SYNC_KEYS){try{const v=localStorage.getItem('kor.'+k);if(v!=null)o[k]=JSON.parse(v)}catch(e){}}o.updatedAt=+(localStorage.getItem('kor.updated')||0);return o}
 function mergeState(loc,rem){
@@ -751,13 +842,14 @@ function mergeState(loc,rem){
 }
 function applyState(st){
   for(const k of SYNC_KEYS){if(st[k]!==undefined)try{localStorage.setItem('kor.'+k,JSON.stringify(st[k]))}catch(e){}}
-  loadSettings();srs=store.get('kor.srs',{});tests=store.get('kor.tests',{});daily=store.get('kor.daily',{day:'',n:0,streak:0});
+  loadSettings();skills=store.get('kor.skills',{});plan=null;srs=store.get('kor.srs',{});tests=store.get('kor.tests',{});daily=store.get('kor.daily',{day:'',n:0,streak:0});
   custom=store.get('kor.custom',[]);
   for(let i=W.length-1;i>=0;i--)if(W[i].lv===0)W.splice(i,1);
   custom.forEach(c=>W.push(mkCustom(c)));
   refreshLessonsBtn();
 }
 async function exportBackup(){
+  try{localStorage.setItem('kor.backupAt',String(Date.now()))}catch(e){}
   const data=JSON.stringify(localState(),null,1),filename='korean-progress-'+today()+'.json';
   if(window.claude&&typeof window.claude.use==='function'){
     try{const dl=await window.claude.use('downloads');if(dl){await dl.save({filename,data});return}}catch(e){return}
@@ -776,3 +868,4 @@ document.getElementById('importFile').onchange=e=>{const f=e.target.files[0];if(
 
 refreshLessonsBtn();
 setTab(tab);
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persisted().then(p=>{if(!p)document.addEventListener('pointerdown',()=>navigator.storage.persist().catch(()=>{}),{once:true})}).catch(()=>{});
