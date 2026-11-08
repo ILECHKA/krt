@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+<meta name="googlebot" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>가나다 — тренажёр корейского по TTMIK</title>
+<meta name="theme-color" content="#5a57e0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1d29" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <div class="brand"><span class="logo">가</span><span><b>가나다</b><small>TTMIK, уровни 1–9</small></span></div>
+    <button class="chipbtn round" id="soundBtn" aria-label="Озвучка: проверка и настройка">🔊</button>
+    <button class="chipbtn" id="lessonsBtn" aria-haspopup="dialog">Уроки</button>
+  </div>
+</header>
+<main class="wrap" id="view"></main>
+<nav class="tabbar" role="tablist" aria-label="Разделы">
+  <button role="tab" data-tab="words"><span class="ti">단어</span>Слова</button>
+  <button role="tab" data-tab="read"><span class="ti">읽기</span>Чтение</button>
+  <button role="tab" data-tab="write"><span class="ti">쓰기</span>Письмо</button>
+  <button role="tab" data-tab="tests"><span class="ti">시험</span>Тесты</button>
+</nav>
+
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="panel">
+    <div class="grab" aria-hidden="true"></div>
+    <h2 id="sheetTitle">Какие уроки тренировать</h2>
+    <p class="sub">Отметьте пройденные уроки. Упражнения берут слова и фразы только из них.</p>
+    <div class="lgrid" id="lgrid"></div>
+    <div class="row">
+      <button class="btn ghost" id="lAll">Все</button>
+      <button class="btn ghost" id="lNone">Снять все</button>
+      <button class="btn" id="lDone">Готово</button>
+    </div>
+    <h3>Резервная копия</h3>
+    <p class="sub" style="margin-bottom:8px">Файл со всем прогрессом и вашими словами. Пригодится, чтобы перенести данные в другой браузер.</p>
+    <div class="row" style="margin-top:0"><button class="btn ghost" id="exportBtn">Скачать копию</button><label class="btn ghost filebtn">Загрузить копию<input type="file" id="importFile" accept="application/json,.json" hidden></label></div>
+    <button class="linkbtn danger" id="resetProg">Сбросить прогресс слов</button>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/extra.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
